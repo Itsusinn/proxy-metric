@@ -1,0 +1,113 @@
+pub mod server;
+pub mod utils;
+
+use eyre::Context;
+use std::error::Error;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_socks::tcp::Socks5Stream;
+
+const ONE_MEGABYTES: usize = 1024 * 1024;
+const BUFFER_SIZE: usize = ONE_MEGABYTES;
+
+async fn measure_proxy(
+    proxy_addr: &SocketAddr,
+    echo_addr: &SocketAddr,
+    upload_addr: &SocketAddr,
+    download_addr: &SocketAddr,
+    data_size: usize,
+) -> Result<(), Box<dyn Error>> {
+    println!("Proxy metrics:");
+
+    let start_time = Instant::now();
+    let mut stream = Socks5Stream::connect(proxy_addr, echo_addr).await?;
+    let connect_duration = start_time.elapsed();
+    println!("Connected to proxy in: {:?}", connect_duration);
+
+    let ping_msg = b"PING";
+    let start_time = Instant::now();
+    stream.write_all(ping_msg).await?;
+    let mut buffer = [0; 4];
+    stream.read_exact(&mut buffer).await?;
+    let latency = start_time.elapsed();
+    println!("Latency: {:?}", latency);
+
+    utils::measure_upload(
+        Socks5Stream::connect(proxy_addr, upload_addr).await?,
+        data_size,
+    )
+    .await?;
+    utils::measure_download(Socks5Stream::connect(proxy_addr, download_addr).await?).await?;
+
+    Ok(())
+}
+
+async fn measure_direct(
+    echo_addr: &SocketAddr,
+    upload_addr: &SocketAddr,
+    download_addr: &SocketAddr,
+    data_size: usize,
+) -> Result<(), Box<dyn Error>> {
+    println!("Direct metrics:");
+
+    let start_time = Instant::now();
+    let mut stream = TcpStream::connect(echo_addr).await?;
+    let connect_duration = start_time.elapsed();
+    println!("Connected to target in: {:?}", connect_duration);
+
+    let ping_msg = b"PING";
+    let start_time = Instant::now();
+    stream.write_all(ping_msg).await?;
+    let mut buffer = [0; 4];
+    stream.read_exact(&mut buffer).await?;
+    let latency = start_time.elapsed();
+    println!("Latency: {:?}", latency);
+    drop(stream);
+
+    utils::measure_upload(TcpStream::connect(upload_addr).await?, data_size).await?;
+    utils::measure_download(TcpStream::connect(download_addr).await?).await?;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let proxy_addr: SocketAddr = ;
+    let echo_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4443).into();
+    let download_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4444).into();
+    let upload_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4445).into();
+
+    // 测试 300MB 数据的带宽
+    let data_size = 1024 * ONE_MEGABYTES;
+    tokio::spawn(async move {
+        server::start_echo_server(&echo_addr)
+            .await
+            .context("Error throw at spawn point")
+            .unwrap();
+    });
+    tokio::spawn(async move {
+        server::start_download_server(&download_addr)
+            .await
+            .context("Error throw at spawn point")
+            .unwrap();
+    });
+    tokio::spawn(async move {
+        server::start_upload_server(&upload_addr)
+            .await
+            .context("Error throw at spawn point")
+            .unwrap();
+    });
+    measure_direct(&echo_addr, &upload_addr, &download_addr, data_size).await?;
+    measure_proxy(
+        &proxy_addr,
+        &echo_addr,
+        &upload_addr,
+        &download_addr,
+        data_size,
+    )
+    .await?;
+
+    Ok(())
+}

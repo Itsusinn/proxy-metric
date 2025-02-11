@@ -1,0 +1,10 @@
+[package]
+name = "proxy-metric"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-socks = "0.5"
+eyre = "0.6"
+rand = "0.8"

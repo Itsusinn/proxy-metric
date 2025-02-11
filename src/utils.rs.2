@@ -1,0 +1,43 @@
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    time::Instant,
+};
+
+pub async fn measure_upload<T>(mut stream: T, data_size: usize) -> eyre::Result<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    // 测试带宽：发送大数据包并测量发送和接收时间
+    let large_data = vec![0u8; data_size];
+
+    let start = Instant::now();
+    stream.write_all(&large_data).await?;
+    stream.flush().await?;
+    let duration = start.elapsed();
+    let upload_speed = (large_data.len() as f64) / duration.as_secs_f64() / (1024.0 * 1024.0);
+    println!("Upload speed: {:.2} MB/s", upload_speed);
+
+    Ok(())
+}
+
+pub async fn measure_download<T>(mut stream: T) -> eyre::Result<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    let start = Instant::now();
+    let mut buf = vec![0u8; 1024 * 1024];
+    let mut len = 0;
+    loop {
+        match stream.read(&mut buf).await? {
+            0 => break,
+            n => len = len + n,
+        }
+    }
+
+    let duration = start.elapsed();
+    let download_speed = (len as f64) / duration.as_secs_f64() / (1024.0 * 1024.0);
+    println!("Download speed: {:.2} MB/s", download_speed);
+
+    Ok(())
+}

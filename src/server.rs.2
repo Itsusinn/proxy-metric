@@ -1,0 +1,70 @@
+use std::net::SocketAddr;
+
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
+
+use crate::{BUFFER_SIZE, ONE_MEGABYTES};
+
+pub async fn start_echo_server(addr: &SocketAddr) -> eyre::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    println!("Echo server is listening on {addr}");
+    loop {
+        let (mut socket, peer_addr) = listener.accept().await?;
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; BUFFER_SIZE];
+            loop {
+                match socket.read(&mut buf).await {
+                    Ok(0) => {
+                        println!("Client {} disconnected", peer_addr);
+                        break;
+                    }
+                    Ok(n) => {
+                        socket.write_all(&buf[..n]).await.unwrap();
+                    }
+                    Err(e) => {
+                        println!("Failed to read data from {}: {:?}", peer_addr, e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
+
+pub async fn start_download_server(addr: &SocketAddr) -> eyre::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    println!("Download server is listening on {addr}");
+    loop {
+        let (mut socket, peer_addr) = listener.accept().await?;
+        tokio::spawn(async move {
+            let buf = vec![0u8; 1024 * ONE_MEGABYTES];
+            socket.write_all(&buf).await.unwrap();
+        });
+    }
+}
+
+pub async fn start_upload_server(addr: &SocketAddr) -> eyre::Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    println!("Upload server is listening on {addr}");
+    loop {
+        let (mut socket, peer_addr) = listener.accept().await?;
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; BUFFER_SIZE];
+            loop {
+                match socket.read(&mut buf).await {
+                    Ok(0) => {
+                        println!("Client {} disconnected", peer_addr);
+                        break;
+                    }
+                    Ok(_n) => {}
+                    Err(e) => {
+                        println!("Failed to read data from {}: {:?}", peer_addr, e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
